@@ -1,55 +1,65 @@
 package com.scoutli.service;
 
 import com.scoutli.api.dto.AuthDTO;
-import com.scoutli.domain.entity.User;
-import com.scoutli.domain.repository.UserRepository;
-import io.smallrye.jwt.build.Jwt;
+import com.scoutli.event.UserRegisteredEvent;
+import io.quarkus.oidc.client.OidcClient;
+import io.quarkus.oidc.client.Tokens;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
+import jakarta.ws.rs.core.Form;
 import lombok.extern.slf4j.Slf4j;
-import java.util.Arrays;
-import java.util.HashSet;
+import org.eclipse.microprofile.reactive.messaging.Channel;
+import org.eclipse.microprofile.reactive.messaging.Emitter;
+
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
 
 @ApplicationScoped
 @Slf4j
 public class AuthService {
 
     @Inject
-    UserRepository userRepository;
+    OidcClient oidcClient;
 
-    @Transactional
-    public User register(AuthDTO.RegisterRequest request) {
-        log.info("Attempting to register user: {}", request.email);
-        if (userRepository.findByEmail(request.email) != null) {
-            log.warn("Registration failed: Email {} already exists", request.email);
-            throw new IllegalArgumentException("Email already exists");
-        }
-        User user = new User();
-        user.setEmail(request.email);
-        user.setPassword(request.password); // In real app: BCrypt.hashpw(request.password, BCrypt.gensalt())
-        user.setRole("MEMBER");
-        userRepository.persist(user);
-        log.info("User registered successfully: {}", request.email);
-        return user;
+    @Inject
+    @Channel("users-out")
+    Emitter<UserRegisteredEvent> userEventEmitter;
+
+    public boolean register(AuthDTO.RegisterRequest request) {
+        log.info("Keycloak registration for {} is typically handled externally or via admin API.", request.email);
+        // In a real scenario, you'd use Keycloak Admin REST API to create the user
+        // or redirect the user to Keycloak's registration page.
+        // For now, we simulate a successful registration in Keycloak and emit an event.
+
+        // Simulate successful registration in Keycloak and get some ID
+        String simulatedKeycloakUserId = "kc-user-" + request.email.hashCode();
+        String simulatedRole = "MEMBER"; // Default role
+
+        UserRegisteredEvent event = new UserRegisteredEvent(request.email, simulatedKeycloakUserId, simulatedRole);
+        userEventEmitter.send(event);
+        log.info("UserRegisteredEvent sent to Kafka for user: {}", request.email);
+        return true;
     }
 
     public String login(AuthDTO.LoginRequest request) {
-        log.info("Attempting login for user: {}", request.email);
-        User user = userRepository.findByEmail(request.email);
-        if (user != null && user.getPassword().equals(request.password)) { // In real app: BCrypt.checkpw
-            log.info("Login successful for user: {}", request.email);
-            return generateToken(user.getEmail(), user.getRole());
-        }
-        log.warn("Login failed for user: {}", request.email);
-        return null;
-    }
+        log.info("Attempting Keycloak login for user: {}", request.email);
+        try {
+            // Use password grant type to get tokens
+            Form form = new Form()
+                    .param("username", request.email)
+                    .param("password", request.password)
+                    .param("grant_type", "password");
 
-    private String generateToken(String email, String role) {
-        return Jwt.issuer("https://scoutli.com")
-                .upn(email)
-                .groups(new HashSet<>(Arrays.asList(role)))
-                .expiresIn(3600)
-                .sign();
+            CompletionStage<Tokens> tokensStage = oidcClient.tokens(form);
+            Tokens tokens = tokensStage.toCompletableFuture().get();
+
+            if (tokens != null && tokens.getAccessToken() != null) {
+                log.info("Keycloak login successful for user: {}", request.email);
+                return tokens.getAccessToken();
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            log.warn("Keycloak login failed for user: {}. Error: {}", request.email, e.getMessage());
+        }
+        return null;
     }
 }
