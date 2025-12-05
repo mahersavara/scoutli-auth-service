@@ -1,6 +1,6 @@
 package com.scoutli.auth.service;
 
-import com.scoutli.auth.entity.User;
+import com.scoutli.domain.entity.User;
 import io.smallrye.jwt.build.Jwt;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -12,14 +12,14 @@ import java.util.Set;
 public class TokenService {
 
     public String generateToken(User user) {
-        String roles = user.roles != null ? user.roles : "user";
+        String roles = user.getRoles() != null ? user.getRoles() : "user";
         Set<String> groups = new HashSet<>(Arrays.asList(roles.split(",")));
-        
+
         return Jwt.issuer("https://scoutli.com/auth")
-                .upn(user.email)
+                .upn(user.getEmail())
                 .groups(groups)
-                .claim("id", user.id)
-                .expiresIn(3600) 
+                .claim("id", user.getId())
+                .expiresIn(3600)
                 .sign();
     }
 }

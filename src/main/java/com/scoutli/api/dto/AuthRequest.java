@@ -1,4 +1,4 @@
-package com.scoutli.auth.dto;
+package com.scoutli.api.dto;
 
 import lombok.Data;
 
